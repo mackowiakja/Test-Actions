@@ -92,3 +92,8 @@ jobs:
           git add ${{ env.TOML_FILE_PATH }}
           git commit -m "${{ steps.update_file_content.outputs.COMMIT_MESSAGE }}"
           git push origin "${{ steps.create_branch.outputs.new_branch }}"
+
+          echo "Setting CURRENT_BRANCH to ${{ vars.NEXT_BRANCH }}"
+          gh variable set CURRENT_BRANCH --body ${{ vars.NEXT_BRANCH }}
+          echo "Setting NEXT_BRANCH to $GENERATED_BRANCH"
+          gh variable set NEXT_BRANCH --body $GENERATED_BRANCH
