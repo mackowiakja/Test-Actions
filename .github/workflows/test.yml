@@ -1,0 +1,94 @@
+name: Create Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_branch:
+        description: "Branch Name (optional). Format: YYYY.# Otherwise increments from NEXT_BRANCH"
+        required: false
+      app_version:
+        description: "App Version (Optional). Otherwise increments minor version"
+        required: false
+jobs:
+  update_version_and_create_pr:
+    runs-on: ubuntu-latest
+    environment: whatever
+    env:
+      INPUT_RELEASE_BRANCH: ${{ github.event.inputs.release_branch }}
+      ENV_RELEASE_BRANCH: ${{ vars.NEXT_BRANCH }}
+      TOML_FILE_PATH: gradle/libs.versions.toml
+      VERSION_KEY: versionName
+      CUSTOM_APP_VERSION: ${{ github.event.inputs.app_version }}
+      GIT_USER_EMAIL: mackowiakja@gmail.com
+      GIT_USER_NAME: mackowiakja
+    
+    steps:          
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.TEST }}
+
+      - name: Configure Git user
+        run: |
+          git config --global user.email "${{ env.GIT_USER_EMAIL }}"
+          git config --global user.name "${{ env.GIT_USER_NAME }}"
+
+      - name: Create and checkout new branch
+        id: create_branch
+        run: |
+          if [[ -z "$INPUT_RELEASE_BRANCH" ]]; then
+            # Increment branch
+            CURRENT_BRANCH_YEAR=$(echo "$ENV_RELEASE_BRANCH" | sed 's/^release\///' | cut -d'.' -f1)
+            CURRENT_BRANCH_MONTH=$(echo "$ENV_RELEASE_BRANCH" | cut -d'.' -f2)
+
+            if [[ CURRENT_BRANCH_MONTH -eq 12 ]]; then
+                ((CURRENT_BRANCH_YEAR++))
+                CURRENT_BRANCH_MONTH=1
+            else
+                ((CURRENT_BRANCH_MONTH++))
+            fi
+
+            GENERATED_BRANCH="release/${CURRENT_BRANCH_YEAR}.${CURRENT_BRANCH_MONTH}"
+
+          else
+            GENERATED_BRANCH="release/$INPUT_RELEASE_BRANCH"
+          fi
+
+          echo "new_branch=$GENERATED_BRANCH" >> "$GITHUB_OUTPUT"
+          git checkout -b "$GENERATED_BRANCH"
+          
+      - name: Check current version and update if necessary
+        id: update_file_content
+        run: |
+          CURRENT_VERSION=$(grep "^${{ env.VERSION_KEY }} =" "${{ env.TOML_FILE_PATH }}" | sed -E 's/^.*\"([^\"]+)\".*$/\1/')
+          MAJOR_VERSION=$(echo "$CURRENT_VERSION" | cut -d'.' -f1)
+          PATCH_VERSION=0
+
+          if [[ -z "$CUSTOM_APP_VERSION" ]]; then
+            # Increment minor version
+            MINOR_VERSION=$(echo "$CURRENT_VERSION" | cut -d'.' -f2)
+            ((MINOR_VERSION++))
+            NEW_APP_VERSION="${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}"
+
+          else
+            NEW_APP_VERSION="$CUSTOM_APP_VERSION"
+          fi
+
+          echo "NEW_APP_VERSION=$NEW_APP_VERSION" >> "$GITHUB_OUTPUT"
+
+          echo "Updating version from $CURRENT_VERSION to $NEW_APP_VERSION"
+          sed -i -E "s/^(${VERSION_KEY} = \").*(\")/\1${NEW_APP_VERSION}\2/" "${TOML_FILE_PATH}"
+          echo "File ${{ env.TOML_FILE_PATH }} updated successfully."
+          echo "file_changed=true" >> "$GITHUB_OUTPUT"
+
+          COMMIT_MESSAGE="chore: Update app version to $NEW_APP_VERSION"
+          echo "COMMIT_MESSAGE=$COMMIT_MESSAGE" >> "$GITHUB_OUTPUT"
+
+
+      - name: Commit and Push changes to the new branch
+        if: steps.update_file_content.outputs.file_changed == 'true'
+        run: |
+          git add ${{ env.TOML_FILE_PATH }}
+          git commit -m "${{ steps.update_file_content.outputs.COMMIT_MESSAGE }}"
+          git push origin "${{ steps.create_branch.outputs.new_branch }}"
