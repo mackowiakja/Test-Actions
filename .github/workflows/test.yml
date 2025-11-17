@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: whatever
     env:
+      GH_TOKEN: ${{ secrets.TEST }}
       INPUT_RELEASE_BRANCH: ${{ github.event.inputs.release_branch }}
       ENV_RELEASE_BRANCH: ${{ vars.NEXT_BRANCH }}
       TOML_FILE_PATH: gradle/libs.versions.toml
